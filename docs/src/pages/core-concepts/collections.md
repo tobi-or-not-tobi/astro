@@ -10,7 +10,7 @@ Example use-cases include:
 - Generating multiple pages from remote data
 - Generating multiple pages from local data (ex: list all markdown posts)
 - pagination: `/posts/1`, `/posts/2`, etc.
-- Grouping items into multiple pages: `/author/fred`, `/author/matthew`, etc.
+- Grouping items into multiple pages: `/authors/fred`, `/authors/matthew`, etc.
 - Generating one page per item: `/pokemon/pikachu`, `/pokemon/charmander`, etc.
 
 **Use a Collection when you need to generate multiple pages from a single template.** If you just want to generate a single page -- like a long list linking to every post on your blog -- then you can just use a normal [page](/core-concepts/astro-pages).

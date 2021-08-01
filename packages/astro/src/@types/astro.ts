@@ -6,8 +6,9 @@ export interface RouteData {
 	type: 'page';
 	pattern: RegExp;
 	params: string[];
-	path: string;
+	path: string | null;
   component: string;
+  generate: (data?: any) => string
 }
 
 export interface ManifestData {
@@ -87,6 +88,7 @@ export interface CompileResult {
 export type RuntimeMode = 'development' | 'production';
 
 export type Params = Record<string, string>;
+export type Props = Record<string, any>;
 
 /** Entire output of `astro build`, stored in memory */
 export interface BuildOutput {
@@ -120,7 +122,7 @@ export interface PageDependencies {
 
 export type PaginateFunction<T = any> = (data: T[], args?: { pageSize?: number }) => PaginatedCollectionResult<T>;
 
-export type GetStaticPathsResult = { params: Params }[];
+export type GetStaticPathsResult = { params: Params, props?: Props }[];
 export interface CollectionRSS<T = any> {
   /** (required) Title of the RSS Feed */
   title: string;

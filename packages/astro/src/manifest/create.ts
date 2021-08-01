@@ -7,7 +7,7 @@ import slash from 'slash';
 import glob from 'tiny-glob/sync.js';
 import { AstroConfig } from '../@types/astro';
 import stringWidth from 'string-width';
-
+import {compile} from 'path-to-regexp';
 interface Part {
   content: string;
   dynamic: boolean;
@@ -126,7 +126,8 @@ export function create_manifest_data({ config, cwd }: {config: AstroConfig, cwd?
 			} else if (item.is_page) {
 				components.push(item.file);
                 const component = item.file;
-				const pattern = get_pattern(segments, true);
+				const pattern = get_pattern(segments, false);
+                const generate = get_generator(segments, false);
 				const path = segments.every((segment) => segment.length === 1 && !segment[0].dynamic)
 					? `/${segments.map((segment) => segment[0].content).join('/')}`
 					: null;
@@ -136,6 +137,7 @@ export function create_manifest_data({ config, cwd }: {config: AstroConfig, cwd?
 					pattern,
 					params,
                     component,
+                    generate,
 					// @ts-expect-error
 					path,
 				});
@@ -264,4 +266,39 @@ function get_pattern(segments: Part[][], add_trailing_slash: boolean) {
 	const trailing = add_trailing_slash && segments.length ? '\\/?$' : '$';
 
 	return new RegExp(`^${path || '\\/'}${trailing}`);
+}
+
+function get_generator(segments: Part[][], add_trailing_slash: boolean) {
+    console.log(segments);
+    const template = segments
+		.map((segment) => {
+			return segment[0].spread
+				? `/:${segment[0].content.substr(3)}*`
+				: '/' +
+						segment
+							.map((part) => {
+                                if (part)
+								return part.dynamic
+									? `:${part.content}`
+									: part.content
+											.normalize()
+											.replace(/\?/g, '%3F')
+											.replace(/#/g, '%23')
+											.replace(/%5B/g, '[')
+											.replace(/%5D/g, ']')
+											.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+							})
+							.join('');
+		})
+		.join('');
+
+        const trailing = add_trailing_slash && segments.length ? '/' : '';
+        console.log({template, trailing, compile: compile(template + trailing)});
+
+	const toPath = compile(template + trailing);
+    return (dirtyParams: any) => {
+        const cleanParams = Object.fromEntries(Object.entries(dirtyParams).filter(([k, v]) => v && v.length > 0));
+        console.log({template, cleanParams, dirtyParams, result: toPath(cleanParams)});
+        return toPath(cleanParams)
+    };
 }

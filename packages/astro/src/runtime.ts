@@ -7,8 +7,11 @@ import resolve from 'resolve';
 import {
   loadConfiguration,
   logger as snowpackLogger,
-  NotFoundError, ServerRuntime as SnowpackServerRuntime,
-  SnowpackConfig, SnowpackDevServer, startServer as startSnowpackServer
+  NotFoundError,
+  ServerRuntime as SnowpackServerRuntime,
+  SnowpackConfig,
+  SnowpackDevServer,
+  startServer as startSnowpackServer,
 } from 'snowpack';
 import { fileURLToPath } from 'url';
 import type { AstroConfig, CollectionRSS, GetStaticPathsResult, ManifestData, RouteData, RuntimeMode } from './@types/astro';
@@ -59,36 +62,36 @@ export type LoadResult = LoadResultSuccess | LoadResultNotFound | LoadResultRedi
 // Disable snowpack from writing to stdout/err.
 configureSnowpackLogger(snowpackLogger);
 
-
-
 function get_params(array: string[]) {
-	// given an array of params like `['x', 'y', 'z']` for
-	// src/routes/[x]/[y]/[z]/svelte, create a function
-	// that turns a RegExpExecArray into ({ x, y, z })
-	const fn = (match: RegExpExecArray) => {
-		const params: Record<string, string> = {};
-		array.forEach((key, i) => {
-			if (key.startsWith('...')) {
-				params[key.slice(3)] = decodeURIComponent(match[i + 1] || '');
-			} else {
-				params[key] = decodeURIComponent(match[i + 1]);
-			}
-		});
-		return params;
-	};
+  // given an array of params like `['x', 'y', 'z']` for
+  // src/routes/[x]/[y]/[z]/svelte, create a function
+  // that turns a RegExpExecArray into ({ x, y, z })
+  const fn = (match: RegExpExecArray) => {
+    const params: Record<string, string> = {};
+    array.forEach((key, i) => {
+      if (key.startsWith('...')) {
+        params[key.slice(3)] = decodeURIComponent(match[i + 1] || '');
+      } else {
+        params[key] = decodeURIComponent(match[i + 1]);
+      }
+    });
+    return params;
+  };
 
-	return fn;
+  return fn;
 }
 
 /** convertMatchToLocation and return the _astro candidate for snowpack */
-function convertMatchToLocation(pagePath: RouteData, astroConfig: AstroConfig): PageLocation {
-    const url = new URL(`./${pagePath.component}`, astroConfig.projectRoot);
-    console.log(url, `/_astro/${pagePath.component}.js`);
-    return {
-      fileURL: url,
-      snowpackURL: `/_astro/${pagePath.component}.js`,
-    };
+function convertMatchToLocation(routeMatch: RouteData, astroConfig: AstroConfig): PageLocation {
+  const url = new URL(`./${routeMatch.component}`, astroConfig.projectRoot);
+  // console.log(url, `/_astro/${routeMatch.component}.js`);
+  return {
+    fileURL: url,
+    snowpackURL: `/_astro/${routeMatch.component}.js`,
+  };
 }
+
+const cachedStaticPaths: Record<string, GetStaticPathsResult> = {};
 
 /** Pass a URL to Astro to resolve and build */
 async function load(config: RuntimeConfig, rawPathname: string | undefined): Promise<LoadResult> {
@@ -118,12 +121,13 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     // continue...
   }
 
+  // console.log(config.manifest.routes);
   const routeMatch = config.manifest.routes.find((route) => route.pattern.test(reqPath));
   if (!routeMatch) {
     return { statusCode: 404, error: new Error('No matching route found.') };
   }
 
-  console.log("FOUND", routeMatch);
+  // console.log('FOUND', routeMatch);
 
   // TODO: Handle a redirect? I don't think so...
   const routeLocation = convertMatchToLocation(routeMatch, config.astroConfig);
@@ -131,13 +135,13 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
   let collectionInfo: CollectionInfo | undefined;
   let pageProps = {} as Record<string, any>;
 
-	const paramsMatch = routeMatch.pattern.exec(reqPath);
-	if (!paramsMatch) {
-		return error('could not parse parameters from request path');
-	}
+  const paramsMatch = routeMatch.pattern.exec(reqPath);
+  if (!paramsMatch) {
+    return error('could not parse parameters from request path');
+  }
   const paramsCreator = get_params(routeMatch.params);
   const params = paramsCreator(paramsMatch);
-  console.log(paramsMatch, params);
+  // console.log(paramsMatch, params);
 
   try {
     if (configManager.needsUpdate()) {
@@ -145,16 +149,79 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     }
     console.log(routeLocation);
     const mod = await snowpackRuntime.importModule(snowpackURL);
+    console.log('check', routeMatch.params.length);
     debug(logging, 'resolve', `${reqPath} -> ${snowpackURL}`);
-
 
     // if routeMatch.params isn't empty, we need to call getStaticPaths()
     if (routeMatch.params.length > 0) {
-      const routePathParams: GetStaticPathsResult = await mod.exports.getStaticPaths();
-      const matchedStaticPath = routePathParams.find(({params: _params}) => JSON.stringify(_params) === JSON.stringify(params));
+      let paginateCallCount = 0;
+      function paginateUtility(data: any[], args: { pageSize?: number; rss?: any } = {}) {
+        paginateCallCount!++;
+        let { pageSize: _pageSize, rss } = args;
+        const pageSize = _pageSize || 10;
+        collectionInfo = {
+          additionalURLs: new Set<string>(),
+          rss: undefined,
+        };
+        if (rss) {
+          collectionInfo.rss = {
+            ...rss,
+            data: [...data] as any,
+          };
+        }
+
+        const lastPage = Math.max(1, Math.ceil(data.length / pageSize));
+        // console.log('PAGINATE', pageSize, data, lastPage);
+
+        const result: GetStaticPathsResult = [...Array(lastPage).keys()].map((num) => {
+          const pageNum = num + 1;
+          const start = pageSize === Infinity ? 0 : (pageNum - 1) * pageSize; // currentPage is 1-indexed
+          const end = Math.min(start + pageSize, data.length);
+          const params = {
+            page: pageNum > 1 ? String(pageNum) : '',
+          };
+          return {
+            params,
+            props: {
+              page: {
+                data: data.slice(start, end),
+                start,
+                end: end - 1,
+                total: data.length,
+                page: {
+                  size: pageSize,
+                  current: pageNum,
+                  last: lastPage,
+                },
+                // url: {
+                //   current: `${rootPaginationUrl}${pageNum === 1 ? '' : '/' + pageNum}`,
+                //   next: pageNum === lastPage ? undefined : `${rootPaginationUrl}/${pageNum + 1}`,
+                //   prev: pageNum === 1 ? undefined : `${rootPaginationUrl}${pageNum === 2 ? '' : '/' + (pageNum - 1) }`,
+                // },
+                        url: {
+                          current: routeMatch!.generate({ ...params }),
+                          next: pageNum === lastPage ? undefined : routeMatch!.generate({ ...params, page: String(pageNum + 1) }),
+                          prev: pageNum === 1 ? undefined : routeMatch!.generate({ ...params, page: pageNum - 1 === 1 ? undefined : String(pageNum - 1) }),
+                        },
+              },
+            },
+          };
+        });
+        for (const entry of result) {
+          collectionInfo.additionalURLs.add(entry.props!.page.url.current);
+        }
+        console.log(result, result[0].props.page.url, collectionInfo);
+        return result;
+      }
+
+      console.log(!!cachedStaticPaths[routeMatch.component]);
+      const routePathParams: GetStaticPathsResult = cachedStaticPaths[routeMatch.component] = cachedStaticPaths[routeMatch.component] || await mod.exports.getStaticPaths({paginate: paginateUtility});
+      const matchedStaticPath = routePathParams.find(({ params: _params }) => JSON.stringify(_params) === JSON.stringify(params));
+      console.log(routePathParams, params, matchedStaticPath);
       if (!matchedStaticPath) {
         return { statusCode: 404, error: new Error(`[getStaticPaths] no match found. (${reqPath})`) };
       }
+      pageProps = {...matchedStaticPath.props} || {};
     }
     // if (path.posix.basename(routeLocation.fileURL.pathname).startsWith('$')) {
     //   validateCollectionModule(mod, reqPath);
@@ -511,7 +578,7 @@ export async function createRuntime(astroConfig: AstroConfig, { mode, logging }:
     snowpackRuntime,
     snowpackConfig,
     configManager,
-    manifest: create_manifest_data({config: astroConfig}),
+    manifest: create_manifest_data({ config: astroConfig }),
   };
 
   return {
