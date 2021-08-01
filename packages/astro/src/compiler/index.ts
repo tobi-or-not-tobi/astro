@@ -42,12 +42,9 @@ export async function convertAstroToJsx(template: string, opts: ConvertAstroOpti
  * .md -> .astro source
  */
 export async function convertMdToAstroSource(contents: string, { filename }: { filename: string }, opts?: MarkdownRenderingOptions): Promise<string> {
-  let {
-    content,
-    frontmatter: { layout, ...frontmatter },
-    ...data
-  } = await renderMarkdownWithFrontmatter(contents, opts);
+  let { content, frontmatter, ...data } = await renderMarkdownWithFrontmatter(contents, opts);
 
+  const layout = undefined; // TODO(fks): experimenting with removing
   if (frontmatter['astro'] !== undefined) {
     throw new Error(`"astro" is a reserved word but was used as a frontmatter value!\n\tat ${filename}`);
   }

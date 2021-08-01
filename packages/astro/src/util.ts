@@ -61,7 +61,6 @@ export function generatePaginateFunction(routeMatch: RouteData) {
         },
       };
     });
-    console.log(result, result[0].props!.page.url);
     return result;
   };
 }

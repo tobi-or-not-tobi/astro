@@ -39,10 +39,10 @@ export function createManifest({ config, cwd }: { config: AstroConfig; cwd?: str
       const name = ext ? basename.slice(0, -ext.length) : basename;
 
       if (basename[0] === '.' && basename !== '.well-known') {
-          return null;
+        return null;
       }
       if (!isDir && !/^(\.[a-z0-9]+)+$/i.test(ext)) {
-          return null; // filter out tmp files etc
+        return null; // filter out tmp files etc
       }
       const segment = isDir ? basename : name;
       if (/\]\[/.test(segment)) {
@@ -251,7 +251,7 @@ function getGenerator(segments: Part[][], addTrailingSlash: boolean) {
   const template = segments
     .map((segment) => {
       return segment[0].spread
-        ? `/:${segment[0].content.substr(3)}*`
+        ? `/:${segment[0].content.substr(3)}(.*)`
         : '/' +
             segment
               .map((part) => {
@@ -272,7 +272,7 @@ function getGenerator(segments: Part[][], addTrailingSlash: boolean) {
 
   const trailing = addTrailingSlash && segments.length ? '/' : '';
   const toPath = compile(template + trailing);
-  // TODO: still needed? 
+  // TODO: still needed?
   return (dirtyParams: Record<string, any>) => {
     const cleanParams = Object.fromEntries(Object.entries(dirtyParams).filter(([, v]) => v && v.length > 0));
     return toPath(cleanParams);
