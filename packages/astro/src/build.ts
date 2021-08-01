@@ -13,7 +13,7 @@ import mime from 'mime';
 import glob from 'tiny-glob';
 import { bundleCSS } from './build/bundle/css.js';
 import { bundleJS, collectJSImports } from './build/bundle/js.js';
-import { buildCollectionPage, buildStaticPage, getPageType } from './build/page.js';
+import { buildDynamicPage, buildStaticPage, getPageType } from './build/page.js';
 import { generateSitemap } from './build/sitemap.js';
 import { logURLStats, collectBundleStats, mapBundleStatsToURLStats } from './build/stats.js';
 import { getDistPath, stopTimer } from './build/util.js';
@@ -24,13 +24,6 @@ const defaultLogging: LogOptions = {
   level: defaultLogLevel,
   dest: defaultLogDestination,
 };
-
-/** Return contents of src/pages */
-async function allPages(root: URL): Promise<URL[]> {
-  const cwd = fileURLToPath(root);
-  const files = await glob('**/*.{astro,md}', { cwd, filesOnly: true });
-  return files.map((f) => new URL(f, root));
-}
 
 /** Is this URL remote? */
 function isRemote(url: string) {
@@ -59,7 +52,7 @@ export async function build(astroConfig: AstroConfig, logging: LogOptions = defa
   const mode: RuntimeMode = 'production';
   const runtime = await createRuntime(astroConfig, { mode, logging: runtimeLogging });
   const { runtimeConfig } = runtime;
-  const { snowpackRuntime } = runtimeConfig;
+  const { snowpackRuntime, manifest } = runtimeConfig;
 
   try {
     // 0. erase build directory
@@ -70,22 +63,34 @@ export async function build(astroConfig: AstroConfig, logging: LogOptions = defa
      * Source files are built in parallel and stored in memory. Most assets are also gathered here, too.
      */
     timer.build = performance.now();
-    const pages = await allPages(pagesRoot);
     info(logging, 'build', yellow('! building pages...'));
     try {
       await Promise.all(
-        pages.map((filepath) => {
-          const buildPage = getPageType(filepath) === 'collection' ? buildCollectionPage : buildStaticPage;
-          return buildPage({
-            astroConfig,
-            buildState,
-            filepath,
-            logging,
-            mode,
-            snowpackRuntime,
-            astroRuntime: runtime,
-            site: astroConfig.buildOptions.site,
-          });
+        manifest.routes.map(async (route) => {
+          // const buildPage = getPageType(filepath) === 'collection' ? buildDynamicPage : buildStaticPage;
+          let buildPaths: string[];
+          if (route.path) {
+            buildPaths = [route.path];
+          } else {
+            buildPaths = await buildDynamicPage({
+              astroConfig,
+              route,
+              snowpackRuntime,
+            });
+          }
+          return Promise.all(buildPaths.map((p) => {
+            return buildStaticPage({
+              astroConfig,
+              buildState,
+              route,
+              path: p,
+              logging,
+              mode,
+              snowpackRuntime,
+              astroRuntime: runtime,
+              site: astroConfig.buildOptions.site,
+            });
+          }));
         })
       );
     } catch (e) {

@@ -22,6 +22,7 @@ import { debug, info, LogOptions } from './logger.js';
 import { create_manifest_data } from './manifest/create.js';
 import { nodeBuiltinsMap } from './node_builtins.js';
 import { configureSnowpackLogger } from './snowpack-logger.js';
+import { convertMatchToLocation, generatePaginateFunction } from './util.js';
 
 const { CompileError } = parser;
 
@@ -79,16 +80,6 @@ function get_params(array: string[]) {
   };
 
   return fn;
-}
-
-/** convertMatchToLocation and return the _astro candidate for snowpack */
-function convertMatchToLocation(routeMatch: RouteData, astroConfig: AstroConfig): PageLocation {
-  const url = new URL(`./${routeMatch.component}`, astroConfig.projectRoot);
-  // console.log(url, `/_astro/${routeMatch.component}.js`);
-  return {
-    fileURL: url,
-    snowpackURL: `/_astro/${routeMatch.component}.js`,
-  };
 }
 
 const cachedStaticPaths: Record<string, GetStaticPathsResult> = {};
@@ -153,69 +144,10 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     debug(logging, 'resolve', `${reqPath} -> ${snowpackURL}`);
 
     // if routeMatch.params isn't empty, we need to call getStaticPaths()
-    if (routeMatch.params.length > 0) {
-      let paginateCallCount = 0;
-      function paginateUtility(data: any[], args: { pageSize?: number; rss?: any } = {}) {
-        paginateCallCount!++;
-        let { pageSize: _pageSize, rss } = args;
-        const pageSize = _pageSize || 10;
-        collectionInfo = {
-          additionalURLs: new Set<string>(),
-          rss: undefined,
-        };
-        if (rss) {
-          collectionInfo.rss = {
-            ...rss,
-            data: [...data] as any,
-          };
-        }
-
-        const lastPage = Math.max(1, Math.ceil(data.length / pageSize));
-        // console.log('PAGINATE', pageSize, data, lastPage);
-
-        const result: GetStaticPathsResult = [...Array(lastPage).keys()].map((num) => {
-          const pageNum = num + 1;
-          const start = pageSize === Infinity ? 0 : (pageNum - 1) * pageSize; // currentPage is 1-indexed
-          const end = Math.min(start + pageSize, data.length);
-          const params = {
-            page: pageNum > 1 ? String(pageNum) : '',
-          };
-          return {
-            params,
-            props: {
-              page: {
-                data: data.slice(start, end),
-                start,
-                end: end - 1,
-                total: data.length,
-                page: {
-                  size: pageSize,
-                  current: pageNum,
-                  last: lastPage,
-                },
-                // url: {
-                //   current: `${rootPaginationUrl}${pageNum === 1 ? '' : '/' + pageNum}`,
-                //   next: pageNum === lastPage ? undefined : `${rootPaginationUrl}/${pageNum + 1}`,
-                //   prev: pageNum === 1 ? undefined : `${rootPaginationUrl}${pageNum === 2 ? '' : '/' + (pageNum - 1) }`,
-                // },
-                        url: {
-                          current: routeMatch!.generate({ ...params }),
-                          next: pageNum === lastPage ? undefined : routeMatch!.generate({ ...params, page: String(pageNum + 1) }),
-                          prev: pageNum === 1 ? undefined : routeMatch!.generate({ ...params, page: pageNum - 1 === 1 ? undefined : String(pageNum - 1) }),
-                        },
-              },
-            },
-          };
-        });
-        for (const entry of result) {
-          collectionInfo.additionalURLs.add(entry.props!.page.url.current);
-        }
-        console.log(result, result[0].props.page.url, collectionInfo);
-        return result;
-      }
-
+    if (!routeMatch.path) {
+      const paginateFn = generatePaginateFunction(routeMatch);
       console.log(!!cachedStaticPaths[routeMatch.component]);
-      const routePathParams: GetStaticPathsResult = cachedStaticPaths[routeMatch.component] = cachedStaticPaths[routeMatch.component] || await mod.exports.getStaticPaths({paginate: paginateUtility});
+      const routePathParams: GetStaticPathsResult = cachedStaticPaths[routeMatch.component] = cachedStaticPaths[routeMatch.component] || await mod.exports.getStaticPaths({paginate: paginateFn});
       const matchedStaticPath = routePathParams.find(({ params: _params }) => JSON.stringify(_params) === JSON.stringify(params));
       console.log(routePathParams, params, matchedStaticPath);
       if (!matchedStaticPath) {
@@ -543,11 +475,6 @@ async function createSnowpack(astroConfig: AstroConfig, options: CreateSnowpackO
   astroPluginOptions.configManager.snowpackRuntime = snowpackRuntime;
 
   return { snowpack, snowpackRuntime, snowpackConfig, configManager };
-}
-
-interface PageLocation {
-  fileURL: URL;
-  snowpackURL: string;
 }
 
 /** Core Astro runtime */
