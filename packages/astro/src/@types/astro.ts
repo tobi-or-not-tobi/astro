@@ -1,6 +1,18 @@
 import type { ImportSpecifier, ImportDefaultSpecifier, ImportNamespaceSpecifier } from '@babel/types';
 import type { AstroMarkdownOptions } from '@astrojs/markdown-support';
 
+
+export interface RouteData {
+	type: 'page';
+	pattern: RegExp;
+	params: string[];
+	path: string;
+  component: string;
+}
+
+export interface ManifestData {
+	routes: RouteData[];
+}
 export interface AstroConfigRaw {
   dist: string;
   projectRoot: string;

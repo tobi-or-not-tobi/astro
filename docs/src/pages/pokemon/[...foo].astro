@@ -1,0 +1,17 @@
+---
+import SplashLayout from '../layouts/SplashLayout.astro';
+
+export async function getStaticPaths() {
+    // Do your data fetching here.
+    const allPokemonResponse = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=10`);
+    const allPokemonResult = await allPokemonResponse.json();
+    const allPokemon = allPokemonResult.results;
+    return allPokemon.map((pokemon, i) => ({params: {name: pokemon.name}}));
+}
+
+const {name} = Astro.request.params;
+---
+
+<SplashLayout title={name}>
+  <h1>{name}</h1>
+</SplashLayout>

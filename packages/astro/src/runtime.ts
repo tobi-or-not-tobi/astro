@@ -1,31 +1,26 @@
-import type { AstroConfig, PaginatedCollectionResult, CollectionRSS, CreateCollectionResult, PaginateFunction, RuntimeMode } from './@types/astro';
 import type { CompileError as ICompileError } from '@astrojs/parser';
-
-import { compile as compilePathToRegexp, match as matchPathToRegexp } from 'path-to-regexp';
-import resolve from 'resolve';
+import parser from '@astrojs/parser';
 import { existsSync, promises as fs } from 'fs';
-import { fileURLToPath } from 'url';
 import { posix as path } from 'path';
 import { performance } from 'perf_hooks';
+import resolve from 'resolve';
 import {
   loadConfiguration,
   logger as snowpackLogger,
-  NotFoundError,
-  SnowpackDevServer,
-  ServerRuntime as SnowpackServerRuntime,
-  SnowpackConfig,
-  startServer as startSnowpackServer,
+  NotFoundError, ServerRuntime as SnowpackServerRuntime,
+  SnowpackConfig, SnowpackDevServer, startServer as startSnowpackServer
 } from 'snowpack';
-import parser from '@astrojs/parser';
-const { CompileError } = parser;
+import { fileURLToPath } from 'url';
+import type { AstroConfig, CollectionRSS, ManifestData, RouteData, RuntimeMode } from './@types/astro';
 import { canonicalURL, getSrcPath, stopTimer } from './build/util.js';
-import { LogOptions, debug, info, warn } from './logger.js';
-import { configureSnowpackLogger } from './snowpack-logger.js';
-import { searchForPage } from './search.js';
-import snowpackExternals from './external.js';
-import { nodeBuiltinsMap } from './node_builtins.js';
 import { ConfigManager } from './config_manager.js';
-import { validateCollectionModule, validateCollectionResult } from './util.js';
+import snowpackExternals from './external.js';
+import { debug, info, LogOptions } from './logger.js';
+import { create_manifest_data } from './manifest/create.js';
+import { nodeBuiltinsMap } from './node_builtins.js';
+import { configureSnowpackLogger } from './snowpack-logger.js';
+
+const { CompileError } = parser;
 
 interface RuntimeConfig {
   astroConfig: AstroConfig;
@@ -35,6 +30,7 @@ interface RuntimeConfig {
   snowpackRuntime: SnowpackServerRuntime;
   snowpackConfig: SnowpackConfig;
   configManager: ConfigManager;
+  manifest: ManifestData;
 }
 
 // info needed for collection generation
@@ -63,9 +59,20 @@ export type LoadResult = LoadResultSuccess | LoadResultNotFound | LoadResultRedi
 // Disable snowpack from writing to stdout/err.
 configureSnowpackLogger(snowpackLogger);
 
+
+/** convertMatchToLocation and return the _astro candidate for snowpack */
+function convertMatchToLocation(pagePath: RouteData, astroConfig: AstroConfig): PageLocation {
+    const url = new URL(`./${pagePath.component}`, astroConfig.projectRoot);
+    console.log(url, `/_astro/${pagePath.component}.js`);
+    return {
+      fileURL: url,
+      snowpackURL: `/_astro/${pagePath.component}.js`,
+    };
+}
+
 /** Pass a URL to Astro to resolve and build */
 async function load(config: RuntimeConfig, rawPathname: string | undefined): Promise<LoadResult> {
-  const { logging, snowpackRuntime, snowpack, configManager } = config;
+  const { logging, snowpackRuntime, snowpack, configManager, manifest } = config;
   const { buildOptions, devOptions } = config.astroConfig;
 
   const site = new URL(buildOptions.site || `http://${devOptions.hostname}:${devOptions.port}`);
@@ -74,32 +81,31 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
   const reqPath = decodeURI(fullurl.pathname);
   info(logging, 'access', reqPath);
 
-  const searchResult = await searchForPage(fullurl, config.astroConfig);
-  if (searchResult.statusCode === 404) {
-    try {
-      const result = await snowpack.loadUrl(reqPath);
-      if (!result) throw new Error(`Unable to load ${reqPath}`);
-      // success
-      return {
-        statusCode: 200,
-        ...result,
-      };
-    } catch (err) {
-      // build error
-      if (err.failed) {
-        return { statusCode: 500, type: 'unknown', error: err };
-      }
-
-      // not found
-      return { statusCode: 404, error: err };
+  try {
+    const result = await snowpack.loadUrl(reqPath);
+    if (!result) throw new Error(`Unable to load ${reqPath}`);
+    // success
+    return {
+      statusCode: 200,
+      ...result,
+    };
+  } catch (err) {
+    // build error
+    if (err.failed) {
+      return { statusCode: 500, type: 'unknown', error: err };
     }
+    // not found, load a page instead
+    // continue...
   }
 
-  if (searchResult.statusCode === 301) {
-    return { statusCode: 301, location: searchResult.pathname };
+  const routeMatch = config.manifest.routes.find((route) => route.pattern.test(reqPath));
+  if (!routeMatch) {
+    return { statusCode: 404, error: new Error('No matching route found.') };
   }
 
-  const snowpackURL = searchResult.location.snowpackURL;
+  // TODO: Handle a redirect? I don't think so...
+  const routeLocation = convertMatchToLocation(routeMatch, config.astroConfig);
+  const snowpackURL = routeLocation.snowpackURL;
   let collectionInfo: CollectionInfo | undefined;
   let pageProps = {} as Record<string, any>;
 
@@ -107,100 +113,101 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     if (configManager.needsUpdate()) {
       await configManager.update();
     }
+    console.log(routeLocation);
     const mod = await snowpackRuntime.importModule(snowpackURL);
     debug(logging, 'resolve', `${reqPath} -> ${snowpackURL}`);
 
-    // If this URL matched a collection, run the createCollection() function.
-    // TODO(perf): The createCollection() function is meant to be run once, but right now
-    // it re-runs on every new page load. This is especially problematic during build.
-    if (path.posix.basename(searchResult.location.fileURL.pathname).startsWith('$')) {
-      validateCollectionModule(mod, searchResult.pathname);
-      const pageCollection: CreateCollectionResult = await mod.exports.createCollection();
-      validateCollectionResult(pageCollection, searchResult.pathname);
-      const { route, paths: getPaths = () => [{ params: {} }], props: getProps, paginate: isPaginated, rss: createRSS } = pageCollection;
-      debug(logging, 'collection', `use route "${route}" to match request "${reqPath}"`);
-      const reqToParams = matchPathToRegexp<any>(route);
-      const toPath = compilePathToRegexp(route);
-      const reqParams = reqToParams(reqPath);
-      if (!reqParams) {
-        throw new Error(`[createCollection] route pattern does not match request: "${route}". (${searchResult.pathname})`);
-      }
-      if (isPaginated && reqParams.params.page === '1') {
-        return { statusCode: 404, error: new Error(`[createCollection] The first page of a paginated collection has no page number in the URL. (${searchResult.pathname})`) };
-      }
-      const pageNum = parseInt(reqParams.params.page || 1);
-      const allPaths = getPaths();
-      const matchedPathObject = allPaths.find((p) => toPath({ ...p.params, page: reqParams.params.page }) === reqPath);
-      debug(logging, 'collection', `matched path: ${JSON.stringify(matchedPathObject)}`);
-      if (!matchedPathObject) {
-        throw new Error(`[createCollection] no matching path found: "${route}". (${searchResult.pathname})`);
-      }
-      const matchedParams = matchedPathObject.params;
-      if (matchedParams.page) {
-        throw new Error(`[createCollection] "page" param is reserved for pagination and handled for you by Astro. It cannot be returned by "paths()". (${searchResult.pathname})`);
-      }
-      let paginateUtility: PaginateFunction = () => {
-        throw new Error(`[createCollection] paginate() function was called but "paginate: true" was not set. (${searchResult.pathname})`);
-      };
-      let lastPage: number | undefined;
-      let paginateCallCount: number | undefined;
-      if (isPaginated) {
-        paginateCallCount = 0;
-        paginateUtility = (data, args = {}) => {
-          paginateCallCount!++;
-          let { pageSize } = args;
-          if (!pageSize) {
-            pageSize = 10;
-          }
-          const start = pageSize === Infinity ? 0 : (pageNum - 1) * pageSize; // currentPage is 1-indexed
-          const end = Math.min(start + pageSize, data.length);
-          lastPage = Math.max(1, Math.ceil(data.length / pageSize));
-          // The first page of any collection should generate a collectionInfo
-          // metadata object. Important for the final build.
-          if (pageNum === 1) {
-            collectionInfo = {
-              additionalURLs: new Set<string>(),
-              rss: undefined,
-            };
-            if (createRSS) {
-              collectionInfo.rss = {
-                ...createRSS,
-                data: [...data] as any,
-              };
-            }
-            for (const page of [...Array(lastPage - 1).keys()]) {
-              collectionInfo.additionalURLs.add(toPath({ ...matchedParams, page: page + 2 }));
-            }
-          }
-          return {
-            data: data.slice(start, end),
-            start,
-            end: end - 1,
-            total: data.length,
-            page: {
-              size: pageSize,
-              current: pageNum,
-              last: lastPage,
-            },
-            url: {
-              current: reqPath,
-              next: pageNum === lastPage ? undefined : toPath({ ...matchedParams, page: pageNum + 1 }),
-              prev: pageNum === 1 ? undefined : toPath({ ...matchedParams, page: pageNum - 1 === 1 ? undefined : pageNum - 1 }),
-            },
-          } as PaginatedCollectionResult;
-        };
-      }
-      pageProps = await getProps({ params: matchedParams, paginate: paginateUtility });
-      debug(logging, 'collection', `page props: ${JSON.stringify(pageProps)}`);
-      if (paginateCallCount !== undefined && paginateCallCount !== 1) {
-        throw new Error(
-          `[createCollection] paginate() function must be called 1 time when "paginate: true". Called ${paginateCallCount} times instead. (${searchResult.pathname})`
-        );
-      }
-      if (lastPage !== undefined && pageNum > lastPage) {
-        return { statusCode: 404, error: new Error(`[createCollection] page ${pageNum} does not exist. Available pages: 1-${lastPage} (${searchResult.pathname})`) };
-      }
-    }
+    // // If this URL matched a collection, run the createCollection() function.
+    // // TODO(perf): The createCollection() function is meant to be run once, but right now
+    // // it re-runs on every new page load. This is especially problematic during build.
+    // if (path.posix.basename(routeLocation.fileURL.pathname).startsWith('$')) {
+    //   validateCollectionModule(mod, reqPath);
+    //   const pageCollection: CreateCollectionResult = await mod.exports.createCollection();
+    //   validateCollectionResult(pageCollection, reqPath);
+    //   const { route, paths: getPaths = () => [{ params: {} }], props: getProps, paginate: isPaginated, rss: createRSS } = pageCollection;
+    //   debug(logging, 'collection', `use route "${route}" to match request "${reqPath}"`);
+    //   const reqToParams = matchPathToRegexp<any>(route);
+    //   const toPath = compilePathToRegexp(route);
+    //   const reqParams = reqToParams(reqPath);
+    //   if (!reqParams) {
+    //     throw new Error(`[createCollection] route pattern does not match request: "${route}". (${reqPath})`);
+    //   }
+    //   if (isPaginated && reqParams.params.page === '1') {
+    //     return { statusCode: 404, error: new Error(`[createCollection] The first page of a paginated collection has no page number in the URL. (${reqPath})`) };
+    //   }
+    //   const pageNum = parseInt(reqParams.params.page || 1);
+    //   const allPaths = getPaths();
+    //   const matchedPathObject = allPaths.find((p) => toPath({ ...p.params, page: reqParams.params.page }) === reqPath);
+    //   debug(logging, 'collection', `matched path: ${JSON.stringify(matchedPathObject)}`);
+    //   if (!matchedPathObject) {
+    //     throw new Error(`[createCollection] no matching path found: "${route}". (${reqPath})`);
+    //   }
+    //   const matchedParams = matchedPathObject.params;
+    //   if (matchedParams.page) {
+    //     throw new Error(`[createCollection] "page" param is reserved for pagination and handled for you by Astro. It cannot be returned by "paths()". (${reqPath})`);
+    //   }
+    //   let paginateUtility: PaginateFunction = () => {
+    //     throw new Error(`[createCollection] paginate() function was called but "paginate: true" was not set. (${searchResult.pathname})`);
+    //   };
+    //   let lastPage: number | undefined;
+    //   let paginateCallCount: number | undefined;
+    //   if (isPaginated) {
+    //     paginateCallCount = 0;
+    //     paginateUtility = (data, args = {}) => {
+    //       paginateCallCount!++;
+    //       let { pageSize } = args;
+    //       if (!pageSize) {
+    //         pageSize = 10;
+    //       }
+    //       const start = pageSize === Infinity ? 0 : (pageNum - 1) * pageSize; // currentPage is 1-indexed
+    //       const end = Math.min(start + pageSize, data.length);
+    //       lastPage = Math.max(1, Math.ceil(data.length / pageSize));
+    //       // The first page of any collection should generate a collectionInfo
+    //       // metadata object. Important for the final build.
+    //       if (pageNum === 1) {
+    //         collectionInfo = {
+    //           additionalURLs: new Set<string>(),
+    //           rss: undefined,
+    //         };
+    //         if (createRSS) {
+    //           collectionInfo.rss = {
+    //             ...createRSS,
+    //             data: [...data] as any,
+    //           };
+    //         }
+    //         for (const page of [...Array(lastPage - 1).keys()]) {
+    //           collectionInfo.additionalURLs.add(toPath({ ...matchedParams, page: page + 2 }));
+    //         }
+    //       }
+    //       return {
+    //         data: data.slice(start, end),
+    //         start,
+    //         end: end - 1,
+    //         total: data.length,
+    //         page: {
+    //           size: pageSize,
+    //           current: pageNum,
+    //           last: lastPage,
+    //         },
+    //         url: {
+    //           current: reqPath,
+    //           next: pageNum === lastPage ? undefined : toPath({ ...matchedParams, page: pageNum + 1 }),
+    //           prev: pageNum === 1 ? undefined : toPath({ ...matchedParams, page: pageNum - 1 === 1 ? undefined : pageNum - 1 }),
+    //         },
+    //       } as PaginatedCollectionResult;
+    //     };
+    //   }
+    //   // pageProps = await getProps({ params: matchedParams, paginate: paginateUtility });
+    //   // debug(logging, 'collection', `page props: ${JSON.stringify(pageProps)}`);
+    //   // if (paginateCallCount !== undefined && paginateCallCount !== 1) {
+    //   //   throw new Error(
+    //   //     `[createCollection] paginate() function must be called 1 time when "paginate: true". Called ${paginateCallCount} times instead. (${searchResult.pathname})`
+    //   //   );
+    //   // }
+    //   if (lastPage !== undefined && pageNum > lastPage) {
+    //     return { statusCode: 404, error: new Error(`[createCollection] page ${pageNum} does not exist. Available pages: 1-${lastPage} (${searchResult.pathname})`) };
+    //   }
+    // }
 
     const requestURL = new URL(fullurl.toString());
 
@@ -277,6 +284,8 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
           code,
           filename: srcFile.pathname,
           start,
+          // TODO: why did I need to add this?
+          end: 1,
           message: `Could not find${missingFile ? ` "${missingFile}"` : ' file'}`,
         }),
       };
@@ -465,6 +474,7 @@ export async function createRuntime(astroConfig: AstroConfig, { mode, logging }:
     snowpackRuntime,
     snowpackConfig,
     configManager,
+    manifest: create_manifest_data({config: astroConfig}),
   };
 
   return {
