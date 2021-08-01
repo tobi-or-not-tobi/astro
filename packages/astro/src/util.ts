@@ -23,21 +23,9 @@ export function generatePaginateFunction(routeMatch: RouteData) {
       throw new Error('IMPROVE MSG - cannot call paginate() more than once.');
     }
     paginateCallCount++;
-    let { pageSize: _pageSize, rss } = args;
+    let { pageSize: _pageSize } = args;
     const pageSize = _pageSize || 10;
-    // collectionInfo = {
-    //   additionalURLs: new Set<string>(),
-    //   rss: undefined,
-    // };
-    // if (rss) {
-    //   collectionInfo.rss = {
-    //     ...rss,
-    //     data: [...data] as any,
-    //   };
-    // }
-
     const lastPage = Math.max(1, Math.ceil(data.length / pageSize));
-    // console.log('PAGINATE', pageSize, data, lastPage);
 
     const result: GetStaticPathsResult = [...Array(lastPage).keys()].map((num) => {
       const pageNum = num + 1;

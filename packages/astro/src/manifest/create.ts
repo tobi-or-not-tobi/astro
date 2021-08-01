@@ -1,13 +1,9 @@
-import { RouteData, ManifestData } from '../@types/astro';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
 import path from 'path';
-import mime from 'mime';
-import slash from 'slash';
-import glob from 'tiny-glob/sync.js';
-import { AstroConfig } from '../@types/astro';
-import stringWidth from 'string-width';
 import { compile } from 'path-to-regexp';
+import slash from 'slash';
+import { fileURLToPath } from 'url';
+import { AstroConfig, ManifestData, RouteData } from '../@types/astro';
 interface Part {
   content: string;
   dynamic: boolean;
@@ -19,91 +15,87 @@ interface Item {
   ext: string;
   parts: Part[];
   file: string;
-  is_dir: boolean;
-  is_index: boolean;
-  is_page: boolean;
-  route_suffix: string;
+  isDir: boolean;
+  isIndex: boolean;
+  isPage: boolean;
+  routeSuffix: string;
 }
 
-const specials = new Set(['__layout', '__layout.reset', '__error']);
+// Needed?
+// const specials = new Set([]);
 
-export function create_manifest_data({ config, cwd }: { config: AstroConfig; cwd?: string }): ManifestData {
+export function createManifest({ config, cwd }: { config: AstroConfig; cwd?: string }): ManifestData {
   const components: string[] = [];
   const routes: RouteData[] = [];
 
-  /**
-   * @param {string} dir
-   * @param {Part[][]} parent_segments
-   * @param {string[]} parent_params
-   */
-  function walk(dir: string, parent_segments: Part[][], parent_params: string[]) {
+  function walk(dir: string, parentSegments: Part[][], parentParams: string[]) {
     let items: Item[] = [];
     fs.readdirSync(dir).forEach((basename) => {
       const resolved = path.join(dir, basename);
       const file = slash(path.relative(cwd || fileURLToPath(config.projectRoot), resolved));
-      const is_dir = fs.statSync(resolved).isDirectory();
+      const isDir = fs.statSync(resolved).isDirectory();
 
       const ext = path.extname(basename);
       const name = ext ? basename.slice(0, -ext.length) : basename;
 
-      if (basename[0] === '.' && basename !== '.well-known') return null;
-      if (!is_dir && !/^(\.[a-z0-9]+)+$/i.test(ext)) return null; // filter out tmp files etc
-
-      const segment = is_dir ? basename : name;
-
+      if (basename[0] === '.' && basename !== '.well-known') {
+          return null;
+      }
+      if (!isDir && !/^(\.[a-z0-9]+)+$/i.test(ext)) {
+          return null; // filter out tmp files etc
+      }
+      const segment = isDir ? basename : name;
       if (/\]\[/.test(segment)) {
         throw new Error(`Invalid route ${file} — parameters must be separated`);
       }
-
-      if (count_occurrences('[', segment) !== count_occurrences(']', segment)) {
+      if (countOccurrences('[', segment) !== countOccurrences(']', segment)) {
         throw new Error(`Invalid route ${file} — brackets are unbalanced`);
       }
-
       if (/.+\[\.\.\.[^\]]+\]/.test(segment) || /\[\.\.\.[^\]]+\].+/.test(segment)) {
         throw new Error(`Invalid route ${file} — rest parameter must be a standalone segment`);
       }
 
-      const parts = get_parts(segment, file);
-      const is_index = is_dir ? false : basename.startsWith('index.');
-      const route_suffix = basename.slice(basename.indexOf('.'), -ext.length);
+      const parts = getParts(segment, file);
+      const isIndex = isDir ? false : basename.startsWith('index.');
+      const routeSuffix = basename.slice(basename.indexOf('.'), -ext.length);
 
       items.push({
         basename,
         ext,
         parts,
         file: slash(file),
-        is_dir,
-        is_index,
-        is_page: true,
-        route_suffix,
+        isDir,
+        isIndex,
+        isPage: true,
+        routeSuffix,
       });
     });
     items = items.sort(comparator);
 
     items.forEach((item) => {
-      const segments = parent_segments.slice();
+      const segments = parentSegments.slice();
 
-      if (item.is_index) {
-        if (item.route_suffix) {
+      if (item.isIndex) {
+        if (item.routeSuffix) {
           if (segments.length > 0) {
-            const last_segment = segments[segments.length - 1].slice();
-            const last_part = last_segment[last_segment.length - 1];
+            const lastSegment = segments[segments.length - 1].slice();
+            const lastPart = lastSegment[lastSegment.length - 1];
 
-            if (last_part.dynamic) {
-              last_segment.push({
+            if (lastPart.dynamic) {
+              lastSegment.push({
                 dynamic: false,
                 spread: false,
-                content: item.route_suffix,
+                content: item.routeSuffix,
               });
             } else {
-              last_segment[last_segment.length - 1] = {
+              lastSegment[lastSegment.length - 1] = {
                 dynamic: false,
                 spread: false,
-                content: `${last_part.content}${item.route_suffix}`,
+                content: `${lastPart.content}${item.routeSuffix}`,
               };
             }
 
-            segments[segments.length - 1] = last_segment;
+            segments[segments.length - 1] = lastSegment;
           } else {
             segments.push(item.parts);
           }
@@ -112,16 +104,16 @@ export function create_manifest_data({ config, cwd }: { config: AstroConfig; cwd
         segments.push(item.parts);
       }
 
-      const params = parent_params.slice();
+      const params = parentParams.slice();
       params.push(...item.parts.filter((p) => p.dynamic).map((p) => p.content));
 
-      if (item.is_dir) {
+      if (item.isDir) {
         walk(path.join(dir, item.basename), segments, params);
-      } else if (item.is_page) {
+      } else if (item.isPage) {
         components.push(item.file);
         const component = item.file;
-        const pattern = get_pattern(segments, false);
-        const generate = get_generator(segments, false);
+        const pattern = getPattern(segments, false);
+        const generate = getGenerator(segments, false);
         const path = segments.every((segment) => segment.length === 1 && !segment[0].dynamic) ? `/${segments.map((segment) => segment[0].content).join('/')}` : null;
 
         routes.push({
@@ -130,12 +122,11 @@ export function create_manifest_data({ config, cwd }: { config: AstroConfig; cwd
           params,
           component,
           generate,
-          // @ts-expect-error
           path,
         });
       } else {
         throw new Error('NOT IMPLEMENTED');
-        // 	const pattern = get_pattern(segments, !item.route_suffix);
+        // 	const pattern = getPattern(segments, !item.routeSuffix);
         // 	routes.push({
         // 		type: 'endpoint',
         // 		pattern,
@@ -153,7 +144,7 @@ export function create_manifest_data({ config, cwd }: { config: AstroConfig; cwd
   };
 }
 
-function count_occurrences(needle: string, haystack: string) {
+function countOccurrences(needle: string, haystack: string) {
   let count = 0;
   for (let i = 0; i < haystack.length; i += 1) {
     if (haystack[i] === needle) count += 1;
@@ -161,53 +152,53 @@ function count_occurrences(needle: string, haystack: string) {
   return count;
 }
 
-function is_spread(path: string) {
-  const spread_pattern = /\[\.{3}/g;
-  return spread_pattern.test(path);
+function isSpread(path: string) {
+  const spreadPattern = /\[\.{3}/g;
+  return spreadPattern.test(path);
 }
 
 function comparator(a: Item, b: Item) {
-  if (a.is_index !== b.is_index) {
-    if (a.is_index) return is_spread(a.file) ? 1 : -1;
+  if (a.isIndex !== b.isIndex) {
+    if (a.isIndex) return isSpread(a.file) ? 1 : -1;
 
-    return is_spread(b.file) ? -1 : 1;
+    return isSpread(b.file) ? -1 : 1;
   }
 
   const max = Math.max(a.parts.length, b.parts.length);
 
   for (let i = 0; i < max; i += 1) {
-    const a_sub_part = a.parts[i];
-    const b_sub_part = b.parts[i];
+    const aSubPart = a.parts[i];
+    const bSubPart = b.parts[i];
 
-    if (!a_sub_part) return 1; // b is more specific, so goes first
-    if (!b_sub_part) return -1;
+    if (!aSubPart) return 1; // b is more specific, so goes first
+    if (!bSubPart) return -1;
 
     // if spread && index, order later
-    if (a_sub_part.spread && b_sub_part.spread) {
-      return a.is_index ? 1 : -1;
+    if (aSubPart.spread && bSubPart.spread) {
+      return a.isIndex ? 1 : -1;
     }
 
     // If one is ...spread order it later
-    if (a_sub_part.spread !== b_sub_part.spread) return a_sub_part.spread ? 1 : -1;
+    if (aSubPart.spread !== bSubPart.spread) return aSubPart.spread ? 1 : -1;
 
-    if (a_sub_part.dynamic !== b_sub_part.dynamic) {
-      return a_sub_part.dynamic ? 1 : -1;
+    if (aSubPart.dynamic !== bSubPart.dynamic) {
+      return aSubPart.dynamic ? 1 : -1;
     }
 
-    if (!a_sub_part.dynamic && a_sub_part.content !== b_sub_part.content) {
-      return b_sub_part.content.length - a_sub_part.content.length || (a_sub_part.content < b_sub_part.content ? -1 : 1);
+    if (!aSubPart.dynamic && aSubPart.content !== bSubPart.content) {
+      return bSubPart.content.length - aSubPart.content.length || (aSubPart.content < bSubPart.content ? -1 : 1);
     }
   }
 
-  if (a.is_page !== b.is_page) {
-    return a.is_page ? 1 : -1;
+  if (a.isPage !== b.isPage) {
+    return a.isPage ? 1 : -1;
   }
 
   // otherwise sort alphabetically
   return a.file < b.file ? -1 : 1;
 }
 
-function get_parts(part: string, file: string) {
+function getParts(part: string, file: string) {
   const result: Part[] = [];
   part.split(/\[(.+?\(.+?\)|.+?)\]/).map((str, i) => {
     if (!str) return;
@@ -229,7 +220,7 @@ function get_parts(part: string, file: string) {
   return result;
 }
 
-function get_pattern(segments: Part[][], add_trailing_slash: boolean) {
+function getPattern(segments: Part[][], addTrailingSlash: boolean) {
   const path = segments
     .map((segment) => {
       return segment[0].spread
@@ -252,13 +243,11 @@ function get_pattern(segments: Part[][], add_trailing_slash: boolean) {
     })
     .join('');
 
-  const trailing = add_trailing_slash && segments.length ? '\\/?$' : '$';
-
+  const trailing = addTrailingSlash && segments.length ? '\\/?$' : '$';
   return new RegExp(`^${path || '\\/'}${trailing}`);
 }
 
-function get_generator(segments: Part[][], add_trailing_slash: boolean) {
-  console.log(segments);
+function getGenerator(segments: Part[][], addTrailingSlash: boolean) {
   const template = segments
     .map((segment) => {
       return segment[0].spread
@@ -281,13 +270,11 @@ function get_generator(segments: Part[][], add_trailing_slash: boolean) {
     })
     .join('');
 
-  const trailing = add_trailing_slash && segments.length ? '/' : '';
-  console.log({ template, trailing, compile: compile(template + trailing) });
-
+  const trailing = addTrailingSlash && segments.length ? '/' : '';
   const toPath = compile(template + trailing);
-  return (dirtyParams: any) => {
-    const cleanParams = Object.fromEntries(Object.entries(dirtyParams).filter(([k, v]) => v && v.length > 0));
-    console.log({ template, cleanParams, dirtyParams, result: toPath(cleanParams) });
+  // TODO: still needed? 
+  return (dirtyParams: Record<string, any>) => {
+    const cleanParams = Object.fromEntries(Object.entries(dirtyParams).filter(([, v]) => v && v.length > 0));
     return toPath(cleanParams);
   };
 }

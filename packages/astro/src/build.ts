@@ -1,22 +1,21 @@
-import type { AstroConfig, BundleMap, BuildOutput, RuntimeMode, PageDependencies } from './@types/astro';
-import type { LogOptions } from './logger';
-
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { performance } from 'perf_hooks';
-import eslexer from 'es-module-lexer';
 import cheerio from 'cheerio';
 import del from 'del';
-import { bold, green, yellow, red, dim, underline } from 'kleur/colors';
+import eslexer from 'es-module-lexer';
+import fs from 'fs';
+import { bold, green, red, underline, yellow } from 'kleur/colors';
 import mime from 'mime';
+import path from 'path';
+import { performance } from 'perf_hooks';
 import glob from 'tiny-glob';
+import { fileURLToPath } from 'url';
+import type { AstroConfig, BuildOutput, BundleMap, PageDependencies, RouteData, RuntimeMode } from './@types/astro';
 import { bundleCSS } from './build/bundle/css.js';
 import { bundleJS, collectJSImports } from './build/bundle/js.js';
-import { buildDynamicPage, buildStaticPage, getPageType } from './build/page.js';
+import { buildStaticPage, getPathsForDynamicPage } from './build/page.js';
 import { generateSitemap } from './build/sitemap.js';
-import { logURLStats, collectBundleStats, mapBundleStatsToURLStats } from './build/stats.js';
+import { collectBundleStats, logURLStats, mapBundleStatsToURLStats } from './build/stats.js';
 import { getDistPath, stopTimer } from './build/util.js';
+import type { LogOptions } from './logger';
 import { debug, defaultLogDestination, defaultLogLevel, error, info, warn } from './logger.js';
 import { createRuntime } from './runtime.js';
 
@@ -33,7 +32,7 @@ function isRemote(url: string) {
 
 /** The primary build action */
 export async function build(astroConfig: AstroConfig, logging: LogOptions = defaultLogging): Promise<0 | 1> {
-  const { projectRoot, pages: pagesRoot } = astroConfig;
+  const { projectRoot } = astroConfig;
   const dist = new URL(astroConfig.dist + '/', projectRoot);
   const buildState: BuildOutput = {};
   const depTree: BundleMap = {};
@@ -64,34 +63,36 @@ export async function build(astroConfig: AstroConfig, logging: LogOptions = defa
      */
     timer.build = performance.now();
     info(logging, 'build', yellow('! building pages...'));
-    try {
-      await Promise.all(
-        manifest.routes.map(async (route) => {
-          // const buildPage = getPageType(filepath) === 'collection' ? buildDynamicPage : buildStaticPage;
-          let buildPaths: string[];
-          if (route.path) {
-            buildPaths = [route.path];
-          } else {
-            buildPaths = await buildDynamicPage({
+    const allRoutesAndPaths = await Promise.all(
+      manifest.routes.map(async (route): Promise<[RouteData, string[]]> => {
+        if (route.path) {
+          return [route, [route.path]];
+        } else {
+          return [
+            route,
+            await getPathsForDynamicPage({
               astroConfig,
               route,
               snowpackRuntime,
-            });
-          }
-          return Promise.all(
-            buildPaths.map((p) => {
-              return buildStaticPage({
+            }),
+          ];
+        }
+      })
+    );
+    try {
+      // TODO: 2x Promise.all? Might be hard to debug + overwhelm resources.
+      await Promise.all(
+        allRoutesAndPaths.map(async ([route, paths]: [RouteData, string[]]) => {
+          await Promise.all(
+            paths.map((p) =>
+              buildStaticPage({
                 astroConfig,
                 buildState,
                 route,
                 path: p,
-                logging,
-                mode,
-                snowpackRuntime,
                 astroRuntime: runtime,
-                site: astroConfig.buildOptions.site,
-              });
-            })
+              })
+            )
           );
         })
       );
@@ -103,7 +104,6 @@ export async function build(astroConfig: AstroConfig, logging: LogOptions = defa
           .split('\n');
         stack.splice(1, 0, `    at file://${e.filename}`);
         stack = stack.join('\n');
-
         error(
           logging,
           'build',
