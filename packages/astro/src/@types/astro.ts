@@ -1,18 +1,17 @@
 import type { ImportSpecifier, ImportDefaultSpecifier, ImportNamespaceSpecifier } from '@babel/types';
 import type { AstroMarkdownOptions } from '@astrojs/markdown-support';
 
-
 export interface RouteData {
-	type: 'page';
-	pattern: RegExp;
-	params: string[];
-	path: string | null;
+  type: 'page';
+  pattern: RegExp;
+  params: string[];
+  path: string | null;
   component: string;
-  generate: (data?: any) => string
+  generate: (data?: any) => string;
 }
 
 export interface ManifestData {
-	routes: RouteData[];
+  routes: RouteData[];
 }
 export interface AstroConfigRaw {
   dist: string;
@@ -122,7 +121,7 @@ export interface PageDependencies {
 
 export type PaginateFunction<T = any> = (data: T[], args?: { pageSize?: number }) => PaginatedCollectionResult<T>;
 
-export type GetStaticPathsResult = { params: Params, props?: Props }[];
+export type GetStaticPathsResult = { params: Params; props?: Props }[];
 export interface CollectionRSS<T = any> {
   /** (required) Title of the RSS Feed */
   title: string;

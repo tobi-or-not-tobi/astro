@@ -78,19 +78,21 @@ export async function build(astroConfig: AstroConfig, logging: LogOptions = defa
               snowpackRuntime,
             });
           }
-          return Promise.all(buildPaths.map((p) => {
-            return buildStaticPage({
-              astroConfig,
-              buildState,
-              route,
-              path: p,
-              logging,
-              mode,
-              snowpackRuntime,
-              astroRuntime: runtime,
-              site: astroConfig.buildOptions.site,
-            });
-          }));
+          return Promise.all(
+            buildPaths.map((p) => {
+              return buildStaticPage({
+                astroConfig,
+                buildState,
+                route,
+                path: p,
+                logging,
+                mode,
+                snowpackRuntime,
+                astroRuntime: runtime,
+                site: astroConfig.buildOptions.site,
+              });
+            })
+          );
         })
       );
     } catch (e) {

@@ -147,13 +147,14 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     if (!routeMatch.path) {
       const paginateFn = generatePaginateFunction(routeMatch);
       console.log(!!cachedStaticPaths[routeMatch.component]);
-      const routePathParams: GetStaticPathsResult = cachedStaticPaths[routeMatch.component] = cachedStaticPaths[routeMatch.component] || await mod.exports.getStaticPaths({paginate: paginateFn});
+      const routePathParams: GetStaticPathsResult = (cachedStaticPaths[routeMatch.component] =
+        cachedStaticPaths[routeMatch.component] || (await mod.exports.getStaticPaths({ paginate: paginateFn })));
       const matchedStaticPath = routePathParams.find(({ params: _params }) => JSON.stringify(_params) === JSON.stringify(params));
       console.log(routePathParams, params, matchedStaticPath);
       if (!matchedStaticPath) {
         return { statusCode: 404, error: new Error(`[getStaticPaths] no match found. (${reqPath})`) };
       }
-      pageProps = {...matchedStaticPath.props} || {};
+      pageProps = { ...matchedStaticPath.props } || {};
     }
     // if (path.posix.basename(routeLocation.fileURL.pathname).startsWith('$')) {
     //   validateCollectionModule(mod, reqPath);
