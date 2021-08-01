@@ -1,5 +1,5 @@
 ---
-import SplashLayout from '../layouts/SplashLayout.astro';
+import SplashLayout from '../../layouts/SplashLayout.astro';
 
 export async function getStaticPaths() {
     // Do your data fetching here.
@@ -14,4 +14,5 @@ const {name} = Astro.request.params;
 
 <SplashLayout title={name}>
   <h1>{name}</h1>
+  Hello
 </SplashLayout>

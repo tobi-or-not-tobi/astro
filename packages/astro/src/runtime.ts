@@ -11,7 +11,7 @@ import {
   SnowpackConfig, SnowpackDevServer, startServer as startSnowpackServer
 } from 'snowpack';
 import { fileURLToPath } from 'url';
-import type { AstroConfig, CollectionRSS, ManifestData, RouteData, RuntimeMode } from './@types/astro';
+import type { AstroConfig, CollectionRSS, GetStaticPathsResult, ManifestData, RouteData, RuntimeMode } from './@types/astro';
 import { canonicalURL, getSrcPath, stopTimer } from './build/util.js';
 import { ConfigManager } from './config_manager.js';
 import snowpackExternals from './external.js';
@@ -60,6 +60,26 @@ export type LoadResult = LoadResultSuccess | LoadResultNotFound | LoadResultRedi
 configureSnowpackLogger(snowpackLogger);
 
 
+
+function get_params(array: string[]) {
+	// given an array of params like `['x', 'y', 'z']` for
+	// src/routes/[x]/[y]/[z]/svelte, create a function
+	// that turns a RegExpExecArray into ({ x, y, z })
+	const fn = (match: RegExpExecArray) => {
+		const params: Record<string, string> = {};
+		array.forEach((key, i) => {
+			if (key.startsWith('...')) {
+				params[key.slice(3)] = decodeURIComponent(match[i + 1] || '');
+			} else {
+				params[key] = decodeURIComponent(match[i + 1]);
+			}
+		});
+		return params;
+	};
+
+	return fn;
+}
+
 /** convertMatchToLocation and return the _astro candidate for snowpack */
 function convertMatchToLocation(pagePath: RouteData, astroConfig: AstroConfig): PageLocation {
     const url = new URL(`./${pagePath.component}`, astroConfig.projectRoot);
@@ -103,11 +123,21 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     return { statusCode: 404, error: new Error('No matching route found.') };
   }
 
+  console.log("FOUND", routeMatch);
+
   // TODO: Handle a redirect? I don't think so...
   const routeLocation = convertMatchToLocation(routeMatch, config.astroConfig);
   const snowpackURL = routeLocation.snowpackURL;
   let collectionInfo: CollectionInfo | undefined;
   let pageProps = {} as Record<string, any>;
+
+	const paramsMatch = routeMatch.pattern.exec(reqPath);
+	if (!paramsMatch) {
+		return error('could not parse parameters from request path');
+	}
+  const paramsCreator = get_params(routeMatch.params);
+  const params = paramsCreator(paramsMatch);
+  console.log(paramsMatch, params);
 
   try {
     if (configManager.needsUpdate()) {
@@ -117,9 +147,15 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     const mod = await snowpackRuntime.importModule(snowpackURL);
     debug(logging, 'resolve', `${reqPath} -> ${snowpackURL}`);
 
-    // // If this URL matched a collection, run the createCollection() function.
-    // // TODO(perf): The createCollection() function is meant to be run once, but right now
-    // // it re-runs on every new page load. This is especially problematic during build.
+
+    // if routeMatch.params isn't empty, we need to call getStaticPaths()
+    if (routeMatch.params.length > 0) {
+      const routePathParams: GetStaticPathsResult = await mod.exports.getStaticPaths();
+      const matchedStaticPath = routePathParams.find(({params: _params}) => JSON.stringify(_params) === JSON.stringify(params));
+      if (!matchedStaticPath) {
+        return { statusCode: 404, error: new Error(`[getStaticPaths] no match found. (${reqPath})`) };
+      }
+    }
     // if (path.posix.basename(routeLocation.fileURL.pathname).startsWith('$')) {
     //   validateCollectionModule(mod, reqPath);
     //   const pageCollection: CreateCollectionResult = await mod.exports.createCollection();
@@ -220,6 +256,7 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     let html = (await mod.exports.__renderPage({
       request: {
         // params should go here when implemented
+        params,
         url: requestURL,
         canonicalURL: canonicalURL(requestURL.pathname, site.toString()),
       },

@@ -2,10 +2,10 @@ import path from 'path';
 import { compile as compilePathToRegexp } from 'path-to-regexp';
 import type { ServerRuntime as SnowpackServerRuntime } from 'snowpack';
 import { fileURLToPath } from 'url';
-import type { AstroConfig, BuildOutput, CreateCollectionResult, RuntimeMode } from '../@types/astro';
+import type { AstroConfig, BuildOutput, GetStaticPathsResult, RuntimeMode } from '../@types/astro';
 import type { LogOptions } from '../logger';
 import type { AstroRuntime, LoadResult } from '../runtime';
-import { validateCollectionModule, validateCollectionResult } from '../util.js';
+// import { validateCollectionModule, validateCollectionResult } from '../util.js';
 import { generateRSS } from './rss.js';
 
 interface PageBuildOptions {
@@ -32,13 +32,13 @@ export async function buildCollectionPage({ astroConfig, filepath, astroRuntime,
   const pagesPath = astroConfig.pages.pathname.replace(astroConfig.projectRoot.pathname, '');
   const snowpackURL = `/_astro/${pagesPath}${srcURL}.js`;
   const mod = await snowpackRuntime.importModule(snowpackURL);
-  validateCollectionModule(mod, filepath.pathname);
-  const pageCollection: CreateCollectionResult = await mod.exports.createCollection();
-  validateCollectionResult(pageCollection, filepath.pathname);
+  // validateCollectionModule(mod, filepath.pathname);
+  const pageCollection: any = await mod.exports.createCollection();
+  // validateCollectionResult(pageCollection, filepath.pathname);
   let { route, paths: getPaths = () => [{ params: {} }] } = pageCollection;
   const toPath = compilePathToRegexp(route);
   const allPaths = getPaths();
-  const allRoutes: string[] = allPaths.map((p) => toPath(p.params));
+  const allRoutes: string[] = allPaths.map((p: any) => toPath(p.params));
 
   // Keep track of all files that have been built, to prevent duplicates.
   const builtURLs = new Set<string>();

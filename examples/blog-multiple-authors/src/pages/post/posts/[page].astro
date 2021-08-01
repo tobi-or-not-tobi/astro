@@ -11,22 +11,17 @@ let canonicalURL = Astro.request.canonicalURL;
 
 // collection
 import authorData from '../data/authors.json';
-export function createCollection() {
-  return {
-    route: `/posts/:page?`,
-    paginate: true,
-    async props({ paginate }) {
-      /** filter posts by author, sort by date */
-      const allPosts = Astro.fetchContent('./post/*.md');
-      const sortedPosts = allPosts.sort((a, b) => new Date(b.date) - new Date(a.date));
-      return {
-        posts: paginate(sortedPosts, {pageSize: 2}),
-      }
-    },
-  };
+export async function getStaticPaths() {
+  const allPosts = Astro.fetchContent('./post/*.md');
+  return [...Array(Math.ciel(allPosts.length / 1)).keys()].map((num) => ({params: {page: num}}));
 }
 
-const { posts } = Astro.props;
+const { page } = Astro.request.params;
+const allPosts = Astro.fetchContent('./post/*.md');
+const sortedPosts = allPosts.sort((a, b) => new Date(b.date) - new Date(a.date));
+const posts = sortedPosts.slice(page, page+1);
+console.log(posts);
+
 ---
 
 <html lang="en">

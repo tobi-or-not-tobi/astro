@@ -73,8 +73,7 @@ export interface TransformResult {
   exports: string[];
   html: string;
   css?: string;
-  /** If this page exports a collection, the JS to be executed as a string */
-  createCollection?: string;
+  getStaticPaths?: string;
   hasCustomElements: boolean;
   customElementCandidates: Map<string, string>;
 }
@@ -121,14 +120,7 @@ export interface PageDependencies {
 
 export type PaginateFunction<T = any> = (data: T[], args?: { pageSize?: number }) => PaginatedCollectionResult<T>;
 
-export interface CreateCollectionResult {
-  paginate?: boolean;
-  route: string;
-  paths?: () => { params: Params }[];
-  props: (args: { params: Params; paginate?: PaginateFunction }) => object | Promise<object>;
-  rss?: CollectionRSS;
-}
-
+export type GetStaticPathsResult = { params: Params }[];
 export interface CollectionRSS<T = any> {
   /** (required) Title of the RSS Feed */
   title: string;
