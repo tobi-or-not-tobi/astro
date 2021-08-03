@@ -45,6 +45,9 @@ export function createManifest({ config, cwd }: { config: AstroConfig; cwd?: str
         return null; // filter out tmp files etc
       }
       const segment = isDir ? basename : name;
+      if (/^$/.test(segment)) {
+        throw new Error(`Invalid route ${file} — Collections API was deprecated and replaced with getStaticPaths.`);
+      }
       if (/\]\[/.test(segment)) {
         throw new Error(`Invalid route ${file} — parameters must be separated`);
       }

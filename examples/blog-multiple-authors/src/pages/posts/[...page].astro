@@ -11,13 +11,24 @@ let canonicalURL = Astro.request.canonicalURL;
 
 // collection
 import authorData from '../../data/authors.json';
-export async function getStaticPaths({paginate}) {
+export async function getStaticPaths({paginate, rss}) {
   const allPosts = Astro.fetchContent('../post/*.md');
   const sortedPosts = allPosts.sort((a, b) => new Date(b.date) - new Date(a.date));
+  // Generate an RSS feed from this collection
+  // TODO: DONT MERGE: This requires buildOptions.site to be set, which can't be set in a template
+  rss({
+    title: 'Don’s Blog',
+    description: 'An example blog on Astro',
+    customData: `<language>en-us</language>`,
+    items: sortedPosts.map(item => ({
+      title: item.title,
+      description: item.description,
+      link: item.url,
+      pubDate: item.date,
+    })),
+  });
+  // Return a paginated collection of paths for all posts
   return paginate(sortedPosts, {pageSize: 1});
-  // return [{params: {page: undefined}, props: collection}];
-  // where "collection" is an old collection object created for each page
-  // return [...Array(Math.ciel(allPosts.length / 1)).keys()].map((num) => ({params: {page: num}}));
 }
 
 const { page } = Astro.props;

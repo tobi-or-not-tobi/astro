@@ -126,7 +126,14 @@ async function load(config: RuntimeConfig, rawPathname: string | undefined): Pro
     // if path isn't static, we need to generate the valid paths first and check against them
     // this helps us to prevent incorrect matches in dev that wouldn't exist in build.
     if (!routeMatch.path) {
-      cachedStaticPaths[routeMatch.component] = cachedStaticPaths[routeMatch.component] || (await mod.exports.getStaticPaths({ paginate: generatePaginateFunction(routeMatch) }));
+      cachedStaticPaths[routeMatch.component] =
+        cachedStaticPaths[routeMatch.component] ||
+        (await mod.exports.getStaticPaths({
+          paginate: generatePaginateFunction(routeMatch),
+          rss: () => {
+            /* noop */
+          },
+        }));
       const routePathParams: GetStaticPathsResult = cachedStaticPaths[routeMatch.component];
       const matchedStaticPath = routePathParams.find(({ params: _params }) => JSON.stringify(_params) === JSON.stringify(params));
       if (!matchedStaticPath) {
@@ -397,6 +404,10 @@ export async function createRuntime(astroConfig: AstroConfig, { mode, logging }:
     configManager,
     manifest: createManifest({ config: astroConfig }),
   };
+
+  snowpack.onFileChange(({ filePath }) => {
+    delete cachedStaticPaths[filePath.replace(fileURLToPath(astroConfig.projectRoot), '')];
+  });
 
   return {
     runtimeConfig,

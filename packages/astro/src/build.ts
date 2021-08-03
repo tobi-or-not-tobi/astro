@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import type { AstroConfig, BuildOutput, BundleMap, PageDependencies, RouteData, RuntimeMode } from './@types/astro';
 import { bundleCSS } from './build/bundle/css.js';
 import { bundleJS, collectJSImports } from './build/bundle/js.js';
-import { buildStaticPage, getPathsForDynamicPage } from './build/page.js';
+import { buildStaticPage, getStaticPathsForPage } from './build/page.js';
 import { generateSitemap } from './build/sitemap.js';
 import { collectBundleStats, logURLStats, mapBundleStatsToURLStats } from './build/stats.js';
 import { getDistPath, stopTimer } from './build/util.js';
@@ -68,14 +68,20 @@ export async function build(astroConfig: AstroConfig, logging: LogOptions = defa
         if (route.path) {
           return [route, [route.path]];
         } else {
-          return [
+          const result = await getStaticPathsForPage({
+            astroConfig,
             route,
-            await getPathsForDynamicPage({
-              astroConfig,
-              route,
-              snowpackRuntime,
-            }),
-          ];
+            snowpackRuntime,
+          });
+          if (result.rss.xml) {
+            buildState[result.rss.url] = {
+              srcPath: new URL(result.rss.url, projectRoot),
+              contents: result.rss.xml,
+              contentType: 'text/xml',
+              encoding: 'utf8',
+            };
+          }
+          return [route, result.paths];
         }
       })
     );

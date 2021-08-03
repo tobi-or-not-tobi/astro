@@ -132,7 +132,7 @@ export interface CollectionRSS<T = any> {
   /** Specify custom data in opening of file */
   customData?: string;
   /** Return data about each item */
-  item: (item: T) => {
+  items: {
     /** (required) Title of item */
     title: string;
     /** (required) Link to item */
@@ -143,7 +143,7 @@ export interface CollectionRSS<T = any> {
     description?: string;
     /** Append some other XML-valid data to this item */
     customData?: string;
-  };
+  }[];
 }
 
 export interface PaginatedCollectionResult<T = any> {

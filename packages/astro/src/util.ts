@@ -1,6 +1,6 @@
 // import type { CreateCollectionResult } from './@types/astro';
-
 import { AstroConfig, GetStaticPathsResult, RouteData } from './@types/astro';
+import { generateRSS } from './build/rss.js';
 
 interface PageLocation {
   fileURL: URL;
@@ -63,6 +63,24 @@ export function generatePaginateFunction(routeMatch: RouteData) {
     });
     return result;
   };
+}
+
+export function generateRssFunction(site: string | undefined, routeMatch: RouteData): [Function, {}] {
+  if (!site) {
+    throw new Error(`[${routeMatch.component}] rss() tried to generate RSS but "buildOptions.site" missing in astro.config.mjs`);
+  }
+  let callCount = 0;
+  let result: {} | { url: string; xml: string } = {};
+  function rssUtility(rssData: any, args: { url?: string } = {}) {
+    if (callCount !== 0) {
+      throw new Error('IMPROVE MSG - cannot call rss() more than once.');
+    }
+    callCount++;
+    const feedURL = args.url || '/rss.xml';
+    (result as { url: string; xml: string }).url = feedURL;
+    (result as { url: string; xml: string }).xml = generateRSS({ ...(rssData as any), site }, { srcFile: routeMatch.component, feedURL });
+  }
+  return [rssUtility, result];
 }
 
 // export function validateCollectionModule(mod: any, filename: string) {

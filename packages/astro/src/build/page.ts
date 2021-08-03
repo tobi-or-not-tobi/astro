@@ -3,7 +3,7 @@ import type { ServerRuntime as SnowpackServerRuntime } from 'snowpack';
 import { fileURLToPath } from 'url';
 import type { AstroConfig, BuildOutput, GetStaticPathsResult, RouteData } from '../@types/astro';
 import type { AstroRuntime } from '../runtime';
-import { convertMatchToLocation, generatePaginateFunction } from '../util.js';
+import { convertMatchToLocation, generatePaginateFunction, generateRssFunction } from '../util.js';
 
 interface PageBuildOptions {
   astroConfig: AstroConfig;
@@ -14,7 +14,7 @@ interface PageBuildOptions {
 }
 
 /** Build dynamic page */
-export async function getPathsForDynamicPage({
+export async function getStaticPathsForPage({
   astroConfig,
   snowpackRuntime,
   route,
@@ -22,12 +22,18 @@ export async function getPathsForDynamicPage({
   astroConfig: AstroConfig;
   route: RouteData;
   snowpackRuntime: SnowpackServerRuntime;
-}): Promise<string[]> {
+}): Promise<{ paths: string[]; rss: any }> {
   const location = convertMatchToLocation(route, astroConfig);
   const mod = await snowpackRuntime.importModule(location.snowpackURL);
-  const paginateFn = generatePaginateFunction(route);
-  const routePathParams: GetStaticPathsResult = await mod.exports.getStaticPaths({ paginate: paginateFn });
-  return routePathParams.map((staticPath) => route.generate(staticPath.params));
+  const [rssFunction, rssResult] = generateRssFunction(astroConfig.buildOptions.site, route);
+  const routePathParams: GetStaticPathsResult = await mod.exports.getStaticPaths({
+    paginate: generatePaginateFunction(route),
+    rss: rssFunction,
+  });
+  return {
+    paths: routePathParams.map((staticPath) => route.generate(staticPath.params)),
+    rss: rssResult,
+  };
 }
 
 /** Build static page */
