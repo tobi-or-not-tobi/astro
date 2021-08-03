@@ -86,7 +86,7 @@ export interface CompileResult {
 
 export type RuntimeMode = 'development' | 'production';
 
-export type Params = Record<string, string>;
+export type Params = Record<string, string | undefined>;
 export type Props = Record<string, any>;
 
 /** Entire output of `astro build`, stored in memory */

@@ -32,7 +32,7 @@ export function generatePaginateFunction(routeMatch: RouteData) {
       const start = pageSize === Infinity ? 0 : (pageNum - 1) * pageSize; // currentPage is 1-indexed
       const end = Math.min(start + pageSize, data.length);
       const params = {
-        page: pageNum > 1 ? String(pageNum) : '',
+        page: pageNum > 1 ? String(pageNum) : undefined,
       };
       return {
         params,

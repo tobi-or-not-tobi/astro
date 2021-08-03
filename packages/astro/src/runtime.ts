@@ -14,7 +14,7 @@ import {
   startServer as startSnowpackServer,
 } from 'snowpack';
 import { fileURLToPath } from 'url';
-import type { AstroConfig, CollectionRSS, GetStaticPathsResult, ManifestData, RuntimeMode } from './@types/astro';
+import type { AstroConfig, CollectionRSS, GetStaticPathsResult, ManifestData, Params, RuntimeMode } from './@types/astro';
 import { canonicalURL, getSrcPath, stopTimer } from './build/util.js';
 import { ConfigManager } from './config_manager.js';
 import snowpackExternals from './external.js';
@@ -62,10 +62,10 @@ function getParams(array: string[]) {
   // src/routes/[x]/[y]/[z]/svelte, create a function
   // that turns a RegExpExecArray into ({ x, y, z })
   const fn = (match: RegExpExecArray) => {
-    const params: Record<string, string> = {};
+    const params: Params = {};
     array.forEach((key, i) => {
       if (key.startsWith('...')) {
-        params[key.slice(3)] = decodeURIComponent(match[i + 1] || '');
+        params[key.slice(3)] = match[i + 1] ? decodeURIComponent(match[i + 1]) : undefined;
       } else {
         params[key] = decodeURIComponent(match[i + 1]);
       }

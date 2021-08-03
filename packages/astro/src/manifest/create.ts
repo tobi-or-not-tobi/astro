@@ -251,7 +251,7 @@ function getGenerator(segments: Part[][], addTrailingSlash: boolean) {
   const template = segments
     .map((segment) => {
       return segment[0].spread
-        ? `/:${segment[0].content.substr(3)}(.*)`
+        ? `/:${segment[0].content.substr(3)}(.*)?`
         : '/' +
             segment
               .map((part) => {
@@ -272,9 +272,5 @@ function getGenerator(segments: Part[][], addTrailingSlash: boolean) {
 
   const trailing = addTrailingSlash && segments.length ? '/' : '';
   const toPath = compile(template + trailing);
-  // TODO: still needed?
-  return (dirtyParams: Record<string, any>) => {
-    const cleanParams = Object.fromEntries(Object.entries(dirtyParams).filter(([, v]) => v && v.length > 0));
-    return toPath(cleanParams);
-  };
+  return toPath;
 }
